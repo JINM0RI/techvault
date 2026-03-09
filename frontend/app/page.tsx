@@ -11,8 +11,8 @@ export default function HomePage() {
           TECHVAULT
         </h1>
         <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-600">
-          Turn notebook learning sessions into interactive documentation with runnable
-          Python cells.
+          Build interactive learning docs directly in the app using rich-text explanation
+          blocks and runnable code blocks.
         </p>
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
           <Link

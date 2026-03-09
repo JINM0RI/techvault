@@ -4,7 +4,6 @@ const links = [
   { href: "/", label: "Home" },
   { href: "/documentation", label: "Documentation" },
   { href: "/cheatsheets", label: "Cheat Sheets" },
-  { href: "/upload", label: "Upload" },
 ];
 
 export function NavigationBar() {

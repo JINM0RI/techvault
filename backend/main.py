@@ -1,15 +1,21 @@
 from pathlib import Path
-from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.code_executor import execute_python_code
-from backend.database import execute, fetch_all, fetch_one, init_db
-from backend.models import RunCodeRequest, RunCodeResponse
-from backend.notebook_parser import parse_notebook
+from backend.database import execute, fetch_all, fetch_one, get_connection, init_db
+from backend.models import (
+    CreateBlockRequest,
+    CreateTopicRequest,
+    CreateTopicResponse,
+    ReorderBlockRequest,
+    RunCodeRequest,
+    RunCodeResponse,
+    UpdateBlockRequest,
+)
 
-app = FastAPI(title="TECHVAULT API", version="0.1.0")
+app = FastAPI(title="TECHVAULT API", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,31 +26,71 @@ app.add_middleware(
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-CONTENT_DIR = BASE_DIR / "content"
-DOCS_DIR = CONTENT_DIR / "documentation"
-CHEAT_SHEETS_DIR = CONTENT_DIR / "cheatsheets"
+CHEAT_SHEETS_DIR = BASE_DIR / "content" / "cheatsheets"
 
 
-def _slugify(value: str) -> str:
+def _normalize_slug(value: str) -> str:
     return "-".join(value.strip().lower().split())
 
 
-def _seed_example_topic() -> None:
-    example_path = DOCS_DIR / "tech" / "python" / "python_lists.ipynb"
-    if not example_path.exists():
-        return
+def _next_position(topic_id: int) -> int:
+    row = fetch_one(
+        "SELECT COALESCE(MAX(position), 0) AS max_position FROM blocks WHERE topic_id = ?",
+        (topic_id,),
+    )
+    return int(row["max_position"]) + 1 if row else 1
 
-    relative_path = example_path.relative_to(BASE_DIR).as_posix()
-    existing = fetch_one("SELECT id FROM topics WHERE file_path = ?", (relative_path,))
+
+def _topic_exists(topic_id: int) -> bool:
+    return fetch_one("SELECT id FROM topics WHERE id = ?", (topic_id,)) is not None
+
+
+def _seed_example_topic() -> None:
+    existing = fetch_one(
+        "SELECT id FROM topics WHERE title = ? AND category = ? AND technology = ?",
+        ("Python Lists", "tech", "python"),
+    )
     if existing:
+        topic_id = int(existing["id"])
+    else:
+        topic_id = execute(
+            """
+            INSERT INTO topics (title, category, technology, language)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("Python Lists", "tech", "python", "python"),
+        )
+
+    block_count = fetch_one("SELECT COUNT(*) AS total FROM blocks WHERE topic_id = ?", (topic_id,))
+    if block_count and int(block_count["total"]) > 0:
         return
 
     execute(
         """
-        INSERT INTO topics (title, category, technology, file_path)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO blocks (topic_id, block_type, content, language, position)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        ("Python Lists", "tech", "python", relative_path),
+        (
+            topic_id,
+            "explanation",
+            "<h1>Python Lists</h1><p>Lists store multiple values in one variable.</p>",
+            None,
+            1,
+        ),
+    )
+
+    execute(
+        """
+        INSERT INTO blocks (topic_id, block_type, content, language, position)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            topic_id,
+            "code",
+            "numbers = [1, 2, 3]\nnumbers.append(4)\nnumbers",
+            "python",
+            2,
+        ),
     )
 
 
@@ -78,7 +124,7 @@ def get_technologies(category: str) -> dict[str, list[str]]:
 def get_topics(category: str, technology: str) -> dict[str, list[dict[str, str | int]]]:
     rows = fetch_all(
         """
-        SELECT id, title, category, technology, created_at
+        SELECT id, title, category, technology, language, created_at
         FROM topics
         WHERE category = ? AND technology = ?
         ORDER BY created_at DESC
@@ -92,6 +138,7 @@ def get_topics(category: str, technology: str) -> dict[str, list[dict[str, str |
                 "title": row["title"],
                 "category": row["category"],
                 "technology": row["technology"],
+                "language": row["language"],
                 "created_at": row["created_at"],
             }
             for row in rows
@@ -99,61 +146,165 @@ def get_topics(category: str, technology: str) -> dict[str, list[dict[str, str |
     }
 
 
+@app.post("/topics", response_model=CreateTopicResponse)
+def create_topic(payload: CreateTopicRequest) -> CreateTopicResponse:
+    category = _normalize_slug(payload.category)
+    technology = _normalize_slug(payload.technology)
+    language = payload.language.strip().lower()
+
+    topic_id = execute(
+        """
+        INSERT INTO topics (title, category, technology, language)
+        VALUES (?, ?, ?, ?)
+        """,
+        (payload.title.strip(), category, technology, language),
+    )
+    return CreateTopicResponse(id=topic_id, message="Topic created")
+
+
 @app.get("/topics/{topic_id}")
 def get_topic(topic_id: int) -> dict[str, object]:
-    row = fetch_one("SELECT * FROM topics WHERE id = ?", (topic_id,))
-    if not row:
+    topic = fetch_one("SELECT * FROM topics WHERE id = ?", (topic_id,))
+    if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
 
-    notebook_path = BASE_DIR / row["file_path"]
-    if not notebook_path.exists():
-        raise HTTPException(status_code=404, detail="Notebook file missing")
+    blocks = fetch_all(
+        """
+        SELECT id, topic_id, block_type, content, language, position, created_at
+        FROM blocks
+        WHERE topic_id = ?
+        ORDER BY position ASC
+        """,
+        (topic_id,),
+    )
 
-    cells = parse_notebook(notebook_path)
     return {
-        "id": row["id"],
-        "title": row["title"],
-        "category": row["category"],
-        "technology": row["technology"],
-        "file_path": row["file_path"],
-        "created_at": row["created_at"],
-        "cells": cells,
+        "id": topic["id"],
+        "title": topic["title"],
+        "category": topic["category"],
+        "technology": topic["technology"],
+        "language": topic["language"],
+        "created_at": topic["created_at"],
+        "blocks": [
+            {
+                "id": block["id"],
+                "topic_id": block["topic_id"],
+                "block_type": block["block_type"],
+                "content": block["content"],
+                "language": block["language"],
+                "position": block["position"],
+                "created_at": block["created_at"],
+            }
+            for block in blocks
+        ],
     }
 
 
-@app.post("/upload")
-async def upload_notebook(
-    category: str = Form(...),
-    technology: str = Form(...),
-    topic_title: str = Form(...),
-    notebook_file: UploadFile = File(...),
-) -> dict[str, object]:
-    if not notebook_file.filename.endswith(".ipynb"):
-        raise HTTPException(status_code=400, detail="Only .ipynb files are supported")
+@app.post("/topics/{topic_id}/blocks")
+def create_block(topic_id: int, payload: CreateBlockRequest) -> dict[str, object]:
+    if not _topic_exists(topic_id):
+        raise HTTPException(status_code=404, detail="Topic not found")
 
-    category_slug = _slugify(category)
-    technology_slug = _slugify(technology)
-    topic_slug = _slugify(topic_title)
+    position = _next_position(topic_id)
+    language = payload.language.strip().lower() if payload.language else None
 
-    storage_dir = DOCS_DIR / category_slug / technology_slug
-    storage_dir.mkdir(parents=True, exist_ok=True)
-
-    filename = f"{topic_slug}-{uuid4().hex[:8]}.ipynb"
-    destination = storage_dir / filename
-
-    file_content = await notebook_file.read()
-    destination.write_bytes(file_content)
-
-    relative_path = destination.relative_to(BASE_DIR).as_posix()
-    topic_id = execute(
+    block_id = execute(
         """
-        INSERT INTO topics (title, category, technology, file_path)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO blocks (topic_id, block_type, content, language, position)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (topic_title, category_slug, technology_slug, relative_path),
+        (topic_id, payload.block_type, payload.content, language, position),
     )
 
-    return {"id": topic_id, "message": "Notebook uploaded successfully"}
+    block = fetch_one("SELECT * FROM blocks WHERE id = ?", (block_id,))
+    if not block:
+        raise HTTPException(status_code=500, detail="Block creation failed")
+
+    return {
+        "id": block["id"],
+        "topic_id": block["topic_id"],
+        "block_type": block["block_type"],
+        "content": block["content"],
+        "language": block["language"],
+        "position": block["position"],
+        "created_at": block["created_at"],
+    }
+
+
+@app.put("/blocks/{block_id}")
+def update_block(block_id: int, payload: UpdateBlockRequest) -> dict[str, object]:
+    block = fetch_one("SELECT * FROM blocks WHERE id = ?", (block_id,))
+    if not block:
+        raise HTTPException(status_code=404, detail="Block not found")
+
+    language = payload.language.strip().lower() if payload.language else block["language"]
+    execute(
+        "UPDATE blocks SET content = ?, language = ? WHERE id = ?",
+        (payload.content, language, block_id),
+    )
+
+    updated = fetch_one("SELECT * FROM blocks WHERE id = ?", (block_id,))
+    if not updated:
+        raise HTTPException(status_code=500, detail="Block update failed")
+
+    return {
+        "id": updated["id"],
+        "topic_id": updated["topic_id"],
+        "block_type": updated["block_type"],
+        "content": updated["content"],
+        "language": updated["language"],
+        "position": updated["position"],
+        "created_at": updated["created_at"],
+    }
+
+
+@app.delete("/blocks/{block_id}")
+def delete_block(block_id: int) -> dict[str, str]:
+    block = fetch_one("SELECT * FROM blocks WHERE id = ?", (block_id,))
+    if not block:
+        raise HTTPException(status_code=404, detail="Block not found")
+
+    topic_id = int(block["topic_id"])
+    removed_position = int(block["position"])
+
+    with get_connection() as conn:
+        conn.execute("DELETE FROM blocks WHERE id = ?", (block_id,))
+        conn.execute(
+            """
+            UPDATE blocks
+            SET position = position - 1
+            WHERE topic_id = ? AND position > ?
+            """,
+            (topic_id, removed_position),
+        )
+        conn.commit()
+
+    return {"message": "Block deleted"}
+
+
+@app.post("/blocks/{block_id}/move")
+def move_block(block_id: int, payload: ReorderBlockRequest) -> dict[str, str]:
+    block = fetch_one("SELECT id, topic_id, position FROM blocks WHERE id = ?", (block_id,))
+    if not block:
+        raise HTTPException(status_code=404, detail="Block not found")
+
+    topic_id = int(block["topic_id"])
+    current_position = int(block["position"])
+    target_position = current_position - 1 if payload.direction == "up" else current_position + 1
+
+    swap = fetch_one(
+        "SELECT id, position FROM blocks WHERE topic_id = ? AND position = ?",
+        (topic_id, target_position),
+    )
+    if not swap:
+        return {"message": "No movement applied"}
+
+    with get_connection() as conn:
+        conn.execute("UPDATE blocks SET position = ? WHERE id = ?", (target_position, block_id))
+        conn.execute("UPDATE blocks SET position = ? WHERE id = ?", (current_position, swap["id"]))
+        conn.commit()
+
+    return {"message": "Block moved"}
 
 
 @app.post("/run-code", response_model=RunCodeResponse)
@@ -167,12 +318,7 @@ def list_cheat_sheets() -> dict[str, list[dict[str, str]]]:
     items: list[dict[str, str]] = []
     if CHEAT_SHEETS_DIR.exists():
         for file in sorted(CHEAT_SHEETS_DIR.glob("*.md")):
-            items.append(
-                {
-                    "title": file.stem.replace("-", " ").title(),
-                    "slug": file.stem,
-                }
-            )
+            items.append({"title": file.stem.replace("-", " ").title(), "slug": file.stem})
 
     return {"cheatsheets": items}
 

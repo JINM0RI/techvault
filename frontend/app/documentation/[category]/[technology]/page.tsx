@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { TopicList } from "@/components/TopicList";
+import { TopicListManager } from "@/components/TopicListManager";
 import { getTopics } from "@/lib/api";
 
 type TechnologyPageProps = {
@@ -29,7 +29,7 @@ export default async function TechnologyPage({ params }: TechnologyPageProps) {
         </h1>
         <p className="text-slate-600">Category: {category}</p>
       </div>
-      <TopicList topics={topics} />
+      <TopicListManager category={category} technology={technology} topics={topics} />
     </section>
   );
 }

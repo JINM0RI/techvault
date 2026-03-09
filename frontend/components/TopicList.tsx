@@ -20,7 +20,7 @@ export function TopicList({ topics }: TopicListProps) {
       {topics.map((topic) => (
         <li key={topic.id}>
           <Link
-            href={`/docs/${topic.id}`}
+            href={`/topic/${topic.id}`}
             className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-teal-600"
           >
             <span className="font-medium text-slate-900">{topic.title}</span>

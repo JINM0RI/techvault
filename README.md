@@ -1,13 +1,18 @@
 # TECHVAULT (PROTO1)
 
-TECHVAULT is a personal interactive knowledge documentation platform.
+TECHVAULT is a personal interactive knowledge vault.
 
 PROTO1 includes:
 
 - Website navigation
 - Documentation hierarchy
+- Topic creation inside the app
+- Block-based topic editor
+- Explanation blocks (TipTap rich text)
+- Code blocks (Monaco editor)
+- Block reordering (move up/down)
+- Slash commands (`/code`, `/text`)
 - Cheat sheet section
-- Notebook upload and ingestion
 - Interactive Python code execution on topic pages
 
 ## Project Structure
@@ -15,6 +20,10 @@ PROTO1 includes:
 ```text
 techvault/
   backend/
+    main.py
+    database.py
+    models.py
+    code_executor.py
   frontend/
   content/
     documentation/
@@ -53,7 +62,9 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 
 ## Notes
 
-- Uploaded notebooks are stored under `content/documentation/{category}/{technology}/`.
-- Metadata is stored in SQLite at `techvault/techvault.db`.
+- Data is stored in SQLite at `techvault/techvault.db`.
+- `topics` table stores topic metadata.
+- `blocks` table stores explanation/code blocks in ordered positions.
 - Cheat sheets are markdown files in `content/cheatsheets/`.
 - Code execution is sandboxed for prototype usage with a timeout and limited builtins.
+- Python execution is supported for code blocks in PROTO1; other languages are syntax-highlighted only.
