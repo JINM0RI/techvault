@@ -1,4 +1,4 @@
-import { CategoryGrid } from "@/components/CategoryGrid";
+import { DocumentationManager } from "@/components/DocumentationManager";
 import { getCategories } from "@/lib/api";
 
 export default async function DocumentationPage() {
@@ -7,10 +7,10 @@ export default async function DocumentationPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Documentation</h1>
-        <p className="mt-2 text-slate-600">Start with a category, then drill down by technology and topic.</p>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">TECHVAULT Documentation</h1>
+        <p className="mt-2 text-slate-600">Create categories, then organize notes and topics.</p>
       </header>
-      <CategoryGrid categories={categories} />
+      <DocumentationManager categories={categories} />
     </section>
   );
 }

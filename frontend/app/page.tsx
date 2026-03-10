@@ -21,7 +21,7 @@ export default function HomePage() {
           >
             <h2 className="text-xl font-semibold text-slate-900">Documentation</h2>
             <p className="mt-2 text-sm text-slate-600">
-              Browse categories, technologies, and topic notebooks.
+              Browse categories, notes, and interactive topic pages.
             </p>
           </Link>
           <Link

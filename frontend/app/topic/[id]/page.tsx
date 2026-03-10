@@ -14,10 +14,7 @@ export default async function TopicPage({ params }: TopicPageProps) {
 
   return (
     <section className="space-y-4">
-      <Link
-        href={`/documentation/${encodeURIComponent(topic.category)}/${encodeURIComponent(topic.technology)}`}
-        className="text-sm text-teal-700 hover:underline"
-      >
+      <Link href={`/notes/${topic.note_id}`} className="text-sm text-teal-700 hover:underline">
         Back to topics
       </Link>
       <TopicEditor initialTopic={topic} />

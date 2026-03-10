@@ -7,12 +7,11 @@ import { createTopic } from "@/lib/api";
 import { Topic } from "@/lib/types";
 
 type TopicListManagerProps = {
-  category: string;
-  technology: string;
+  noteId: number;
   topics: Topic[];
 };
 
-export function TopicListManager({ category, technology, topics }: TopicListManagerProps) {
+export function TopicListManager({ noteId, topics }: TopicListManagerProps) {
   const [list, setList] = useState<Topic[]>(topics);
   const [title, setTitle] = useState("");
   const [language, setLanguage] = useState("python");
@@ -30,25 +29,12 @@ export function TopicListManager({ category, technology, topics }: TopicListMana
     setStatus("");
 
     try {
-      const created = await createTopic({
-        category,
-        technology,
+      const created = await createTopic(noteId, {
         title,
         language,
       });
 
-      const createdAt = new Date().toISOString();
-      setList((prev) => [
-        {
-          id: created.id,
-          title,
-          category,
-          technology,
-          language,
-          created_at: createdAt,
-        },
-        ...prev,
-      ]);
+      setList((prev) => [created, ...prev]);
       setTitle("");
       setLanguage("python");
       setStatus("Topic created.");
@@ -63,8 +49,8 @@ export function TopicListManager({ category, technology, topics }: TopicListMana
     <div className="space-y-6">
       <section className="rounded-xl border border-slate-200 bg-white p-4">
         <h2 className="text-lg font-semibold text-slate-900">Add Topic</h2>
-        <form onSubmit={onSubmit} className="mt-3 grid gap-3 sm:grid-cols-2">
-          <label className="sm:col-span-2">
+        <form onSubmit={onSubmit} className="mt-3 grid gap-3">
+          <label>
             <span className="block text-sm font-medium text-slate-700">Topic Name</span>
             <input
               value={title}
@@ -75,22 +61,6 @@ export function TopicListManager({ category, technology, topics }: TopicListMana
             />
           </label>
           <label>
-            <span className="block text-sm font-medium text-slate-700">Category</span>
-            <input
-              value={category}
-              disabled
-              className="mt-1 w-full rounded border border-slate-300 bg-slate-50 px-3 py-2"
-            />
-          </label>
-          <label>
-            <span className="block text-sm font-medium text-slate-700">Technology</span>
-            <input
-              value={technology}
-              disabled
-              className="mt-1 w-full rounded border border-slate-300 bg-slate-50 px-3 py-2"
-            />
-          </label>
-          <label className="sm:col-span-2">
             <span className="block text-sm font-medium text-slate-700">Language</span>
             <select
               value={language}
@@ -107,7 +77,7 @@ export function TopicListManager({ category, technology, topics }: TopicListMana
           <button
             type="submit"
             disabled={loading}
-            className="sm:col-span-2 rounded bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+            className="rounded bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
           >
             {loading ? "Creating..." : "Create Topic"}
           </button>

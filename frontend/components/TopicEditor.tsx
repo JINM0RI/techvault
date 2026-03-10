@@ -71,7 +71,11 @@ export function TopicEditor({ initialTopic }: TopicEditorProps) {
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <h1 className="text-2xl font-bold text-slate-900">{topic.title}</h1>
         <p className="mt-1 text-sm text-slate-600">
-          {topic.category} / {topic.technology} / {topic.language}
+          {(topic.category?.name || "Uncategorized")}
+          {" / "}
+          {(topic.note?.name || "Untitled Note")}
+          {" / "}
+          {topic.language}
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">

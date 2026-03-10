@@ -3,19 +3,40 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.code_executor import execute_python_code
-from backend.database import execute, fetch_all, fetch_one, get_connection, init_db
-from backend.models import (
-    CreateBlockRequest,
-    CreateTopicRequest,
-    CreateTopicResponse,
-    ReorderBlockRequest,
-    RunCodeRequest,
-    RunCodeResponse,
-    UpdateBlockRequest,
-)
+try:
+    from .code_executor import execute_python_code
+    from .database import execute, fetch_all, fetch_one, get_connection, init_db
+    from .models import (
+        CreateBlockRequest,
+        CreateCategoryRequest,
+        CreateNoteRequest,
+        CreateTopicRequest,
+        ReorderBlockRequest,
+        RunCodeRequest,
+        RunCodeResponse,
+        UpdateBlockRequest,
+        UpdateCategoryRequest,
+        UpdateNoteRequest,
+        UpdateTopicRequest,
+    )
+except ImportError:
+    from code_executor import execute_python_code
+    from database import execute, fetch_all, fetch_one, get_connection, init_db
+    from models import (
+        CreateBlockRequest,
+        CreateCategoryRequest,
+        CreateNoteRequest,
+        CreateTopicRequest,
+        ReorderBlockRequest,
+        RunCodeRequest,
+        RunCodeResponse,
+        UpdateBlockRequest,
+        UpdateCategoryRequest,
+        UpdateNoteRequest,
+        UpdateTopicRequest,
+    )
 
-app = FastAPI(title="TECHVAULT API", version="0.2.0")
+app = FastAPI(title="TECHVAULT API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,8 +50,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 CHEAT_SHEETS_DIR = BASE_DIR / "content" / "cheatsheets"
 
 
-def _normalize_slug(value: str) -> str:
-    return "-".join(value.strip().lower().split())
+def _topic_exists(topic_id: int) -> bool:
+    return fetch_one("SELECT id FROM topics WHERE id = ?", (topic_id,)) is not None
+
+
+def _normalize_language(value: str | None) -> str:
+    if not value:
+        return "python"
+    normalized = value.strip().lower()
+    return normalized or "python"
 
 
 def _next_position(topic_id: int) -> int:
@@ -41,24 +69,35 @@ def _next_position(topic_id: int) -> int:
     return int(row["max_position"]) + 1 if row else 1
 
 
-def _topic_exists(topic_id: int) -> bool:
-    return fetch_one("SELECT id FROM topics WHERE id = ?", (topic_id,)) is not None
+def _seed_example_data() -> None:
+    category = fetch_one("SELECT id FROM categories WHERE name = ?", ("Python",))
+    if category:
+        category_id = int(category["id"])
+    else:
+        category_id = execute("INSERT INTO categories (name) VALUES (?)", ("Python",))
 
-
-def _seed_example_topic() -> None:
-    existing = fetch_one(
-        "SELECT id FROM topics WHERE title = ? AND category = ? AND technology = ?",
-        ("Python Lists", "tech", "python"),
+    note = fetch_one(
+        "SELECT id FROM notes WHERE category_id = ? AND name = ?",
+        (category_id, "Python Basics"),
     )
-    if existing:
-        topic_id = int(existing["id"])
+    if note:
+        note_id = int(note["id"])
+    else:
+        note_id = execute(
+            "INSERT INTO notes (category_id, name, technology) VALUES (?, ?, ?)",
+            (category_id, "Python Basics", "Python"),
+        )
+
+    topic = fetch_one(
+        "SELECT id FROM topics WHERE note_id = ? AND title = ?",
+        (note_id, "Python Lists"),
+    )
+    if topic:
+        topic_id = int(topic["id"])
     else:
         topic_id = execute(
-            """
-            INSERT INTO topics (title, category, technology, language)
-            VALUES (?, ?, ?, ?)
-            """,
-            ("Python Lists", "tech", "python", "python"),
+            "INSERT INTO topics (note_id, title, language) VALUES (?, ?, ?)",
+            (note_id, "Python Lists", "python"),
         )
 
     block_count = fetch_one("SELECT COUNT(*) AS total FROM blocks WHERE topic_id = ?", (topic_id,))
@@ -73,12 +112,11 @@ def _seed_example_topic() -> None:
         (
             topic_id,
             "explanation",
-            "<h1>Python Lists</h1><p>Lists store multiple values in one variable.</p>",
+            "<h2>Python Lists</h2><p>Lists store multiple values in one variable.</p>",
             None,
             1,
         ),
     )
-
     execute(
         """
         INSERT INTO blocks (topic_id, block_type, content, language, position)
@@ -97,7 +135,7 @@ def _seed_example_topic() -> None:
 @app.on_event("startup")
 def startup_event() -> None:
     init_db()
-    _seed_example_topic()
+    _seed_example_data()
 
 
 @app.get("/health")
@@ -105,39 +143,238 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/documentation/categories")
-def get_categories() -> dict[str, list[str]]:
-    rows = fetch_all("SELECT DISTINCT category FROM topics ORDER BY category")
-    return {"categories": [row["category"] for row in rows]}
+@app.get("/categories")
+def list_categories() -> dict[str, list[dict[str, object]]]:
+    rows = fetch_all("SELECT id, name, created_at FROM categories ORDER BY created_at DESC")
+    return {
+        "categories": [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+    }
 
 
-@app.get("/documentation/{category}/technologies")
-def get_technologies(category: str) -> dict[str, list[str]]:
-    rows = fetch_all(
-        "SELECT DISTINCT technology FROM topics WHERE category = ? ORDER BY technology",
-        (category,),
+@app.post("/categories")
+def create_category(payload: CreateCategoryRequest) -> dict[str, object]:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Category name is required")
+
+    existing = fetch_one("SELECT id FROM categories WHERE lower(name) = lower(?)", (name,))
+    if existing:
+        raise HTTPException(status_code=409, detail="Category already exists")
+
+    category_id = execute("INSERT INTO categories (name) VALUES (?)", (name,))
+    category = fetch_one("SELECT id, name, created_at FROM categories WHERE id = ?", (category_id,))
+    if not category:
+        raise HTTPException(status_code=500, detail="Category creation failed")
+
+    return {
+        "id": category["id"],
+        "name": category["name"],
+        "created_at": category["created_at"],
+    }
+
+
+@app.get("/categories/{category_id}")
+def get_category(category_id: int) -> dict[str, object]:
+    category = fetch_one("SELECT id, name, created_at FROM categories WHERE id = ?", (category_id,))
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    return {
+        "id": category["id"],
+        "name": category["name"],
+        "created_at": category["created_at"],
+    }
+
+
+@app.put("/categories/{category_id}")
+def update_category(category_id: int, payload: UpdateCategoryRequest) -> dict[str, object]:
+    category = fetch_one("SELECT id FROM categories WHERE id = ?", (category_id,))
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Category name is required")
+
+    duplicate = fetch_one(
+        "SELECT id FROM categories WHERE lower(name) = lower(?) AND id != ?",
+        (name, category_id),
     )
-    return {"technologies": [row["technology"] for row in rows]}
+    if duplicate:
+        raise HTTPException(status_code=409, detail="Category name already exists")
+
+    execute("UPDATE categories SET name = ? WHERE id = ?", (name, category_id))
+    updated = fetch_one("SELECT id, name, created_at FROM categories WHERE id = ?", (category_id,))
+    if not updated:
+        raise HTTPException(status_code=500, detail="Category update failed")
+
+    return {
+        "id": updated["id"],
+        "name": updated["name"],
+        "created_at": updated["created_at"],
+    }
 
 
-@app.get("/documentation/{category}/{technology}/topics")
-def get_topics(category: str, technology: str) -> dict[str, list[dict[str, str | int]]]:
+@app.delete("/categories/{category_id}")
+def delete_category(category_id: int) -> dict[str, str]:
+    category = fetch_one("SELECT id FROM categories WHERE id = ?", (category_id,))
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    execute("DELETE FROM categories WHERE id = ?", (category_id,))
+    return {"message": "Category deleted"}
+
+
+@app.get("/categories/{category_id}/notes")
+def list_notes(category_id: int) -> dict[str, list[dict[str, object]]]:
+    category = fetch_one("SELECT id FROM categories WHERE id = ?", (category_id,))
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
     rows = fetch_all(
         """
-        SELECT id, title, category, technology, language, created_at
-        FROM topics
-        WHERE category = ? AND technology = ?
+        SELECT id, category_id, name, technology, created_at
+        FROM notes
+        WHERE category_id = ?
         ORDER BY created_at DESC
         """,
-        (category, technology),
+        (category_id,),
     )
+    return {
+        "notes": [
+            {
+                "id": row["id"],
+                "category_id": row["category_id"],
+                "name": row["name"],
+                "technology": row["technology"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+    }
+
+
+@app.post("/categories/{category_id}/notes")
+def create_note(category_id: int, payload: CreateNoteRequest) -> dict[str, object]:
+    category = fetch_one("SELECT id FROM categories WHERE id = ?", (category_id,))
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Note name is required")
+
+    technology = payload.technology.strip() if payload.technology else None
+    note_id = execute(
+        "INSERT INTO notes (category_id, name, technology) VALUES (?, ?, ?)",
+        (category_id, name, technology),
+    )
+
+    note = fetch_one(
+        "SELECT id, category_id, name, technology, created_at FROM notes WHERE id = ?",
+        (note_id,),
+    )
+    if not note:
+        raise HTTPException(status_code=500, detail="Note creation failed")
+
+    return {
+        "id": note["id"],
+        "category_id": note["category_id"],
+        "name": note["name"],
+        "technology": note["technology"],
+        "created_at": note["created_at"],
+    }
+
+
+@app.get("/notes/{note_id}")
+def get_note(note_id: int) -> dict[str, object]:
+    note = fetch_one(
+        "SELECT id, category_id, name, technology, created_at FROM notes WHERE id = ?",
+        (note_id,),
+    )
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    return {
+        "id": note["id"],
+        "category_id": note["category_id"],
+        "name": note["name"],
+        "technology": note["technology"],
+        "created_at": note["created_at"],
+    }
+
+
+@app.put("/notes/{note_id}")
+def update_note(note_id: int, payload: UpdateNoteRequest) -> dict[str, object]:
+    note = fetch_one("SELECT id FROM notes WHERE id = ?", (note_id,))
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Note name is required")
+
+    technology = payload.technology.strip() if payload.technology else None
+    execute(
+        "UPDATE notes SET name = ?, technology = ? WHERE id = ?",
+        (name, technology, note_id),
+    )
+
+    updated = fetch_one(
+        "SELECT id, category_id, name, technology, created_at FROM notes WHERE id = ?",
+        (note_id,),
+    )
+    if not updated:
+        raise HTTPException(status_code=500, detail="Note update failed")
+
+    return {
+        "id": updated["id"],
+        "category_id": updated["category_id"],
+        "name": updated["name"],
+        "technology": updated["technology"],
+        "created_at": updated["created_at"],
+    }
+
+
+@app.delete("/notes/{note_id}")
+def delete_note(note_id: int) -> dict[str, str]:
+    note = fetch_one("SELECT id FROM notes WHERE id = ?", (note_id,))
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    execute("DELETE FROM notes WHERE id = ?", (note_id,))
+    return {"message": "Note deleted"}
+
+
+@app.get("/notes/{note_id}/topics")
+def list_topics(note_id: int) -> dict[str, list[dict[str, object]]]:
+    note = fetch_one("SELECT id FROM notes WHERE id = ?", (note_id,))
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    rows = fetch_all(
+        """
+        SELECT id, note_id, title, language, created_at
+        FROM topics
+        WHERE note_id = ?
+        ORDER BY created_at DESC
+        """,
+        (note_id,),
+    )
+
     return {
         "topics": [
             {
                 "id": row["id"],
+                "note_id": row["note_id"],
                 "title": row["title"],
-                "category": row["category"],
-                "technology": row["technology"],
                 "language": row["language"],
                 "created_at": row["created_at"],
             }
@@ -146,27 +383,50 @@ def get_topics(category: str, technology: str) -> dict[str, list[dict[str, str |
     }
 
 
-@app.post("/topics", response_model=CreateTopicResponse)
-def create_topic(payload: CreateTopicRequest) -> CreateTopicResponse:
-    category = _normalize_slug(payload.category)
-    technology = _normalize_slug(payload.technology)
-    language = payload.language.strip().lower()
+@app.post("/notes/{note_id}/topics")
+def create_topic(note_id: int, payload: CreateTopicRequest) -> dict[str, object]:
+    note = fetch_one("SELECT id FROM notes WHERE id = ?", (note_id,))
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Topic title is required")
 
     topic_id = execute(
-        """
-        INSERT INTO topics (title, category, technology, language)
-        VALUES (?, ?, ?, ?)
-        """,
-        (payload.title.strip(), category, technology, language),
+        "INSERT INTO topics (note_id, title, language) VALUES (?, ?, ?)",
+        (note_id, title, _normalize_language(payload.language)),
     )
-    return CreateTopicResponse(id=topic_id, message="Topic created")
+
+    topic = fetch_one(
+        "SELECT id, note_id, title, language, created_at FROM topics WHERE id = ?",
+        (topic_id,),
+    )
+    if not topic:
+        raise HTTPException(status_code=500, detail="Topic creation failed")
+
+    return {
+        "id": topic["id"],
+        "note_id": topic["note_id"],
+        "title": topic["title"],
+        "language": topic["language"],
+        "created_at": topic["created_at"],
+    }
 
 
 @app.get("/topics/{topic_id}")
 def get_topic(topic_id: int) -> dict[str, object]:
-    topic = fetch_one("SELECT * FROM topics WHERE id = ?", (topic_id,))
+    topic = fetch_one("SELECT id, note_id, title, language, created_at FROM topics WHERE id = ?", (topic_id,))
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
+
+    note = fetch_one(
+        "SELECT id, category_id, name, technology FROM notes WHERE id = ?",
+        (topic["note_id"],),
+    )
+    category = None
+    if note:
+        category = fetch_one("SELECT id, name FROM categories WHERE id = ?", (note["category_id"],))
 
     blocks = fetch_all(
         """
@@ -180,11 +440,23 @@ def get_topic(topic_id: int) -> dict[str, object]:
 
     return {
         "id": topic["id"],
+        "note_id": topic["note_id"],
         "title": topic["title"],
-        "category": topic["category"],
-        "technology": topic["technology"],
         "language": topic["language"],
         "created_at": topic["created_at"],
+        "note": {
+            "id": note["id"],
+            "name": note["name"],
+            "technology": note["technology"],
+        }
+        if note
+        else None,
+        "category": {
+            "id": category["id"],
+            "name": category["name"],
+        }
+        if category
+        else None,
         "blocks": [
             {
                 "id": block["id"],
@@ -200,13 +472,54 @@ def get_topic(topic_id: int) -> dict[str, object]:
     }
 
 
+@app.put("/topics/{topic_id}")
+def update_topic(topic_id: int, payload: UpdateTopicRequest) -> dict[str, object]:
+    topic = fetch_one("SELECT id FROM topics WHERE id = ?", (topic_id,))
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Topic title is required")
+
+    execute(
+        "UPDATE topics SET title = ?, language = ? WHERE id = ?",
+        (title, _normalize_language(payload.language), topic_id),
+    )
+
+    updated = fetch_one(
+        "SELECT id, note_id, title, language, created_at FROM topics WHERE id = ?",
+        (topic_id,),
+    )
+    if not updated:
+        raise HTTPException(status_code=500, detail="Topic update failed")
+
+    return {
+        "id": updated["id"],
+        "note_id": updated["note_id"],
+        "title": updated["title"],
+        "language": updated["language"],
+        "created_at": updated["created_at"],
+    }
+
+
+@app.delete("/topics/{topic_id}")
+def delete_topic(topic_id: int) -> dict[str, str]:
+    topic = fetch_one("SELECT id FROM topics WHERE id = ?", (topic_id,))
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    execute("DELETE FROM topics WHERE id = ?", (topic_id,))
+    return {"message": "Topic deleted"}
+
+
 @app.post("/topics/{topic_id}/blocks")
 def create_block(topic_id: int, payload: CreateBlockRequest) -> dict[str, object]:
     if not _topic_exists(topic_id):
         raise HTTPException(status_code=404, detail="Topic not found")
 
     position = _next_position(topic_id)
-    language = payload.language.strip().lower() if payload.language else None
+    language = _normalize_language(payload.language) if payload.language else None
 
     block_id = execute(
         """
@@ -237,7 +550,7 @@ def update_block(block_id: int, payload: UpdateBlockRequest) -> dict[str, object
     if not block:
         raise HTTPException(status_code=404, detail="Block not found")
 
-    language = payload.language.strip().lower() if payload.language else block["language"]
+    language = _normalize_language(payload.language) if payload.language else block["language"]
     execute(
         "UPDATE blocks SET content = ?, language = ? WHERE id = ?",
         (payload.content, language, block_id),

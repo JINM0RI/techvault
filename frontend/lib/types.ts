@@ -12,25 +12,39 @@ export type Block = {
   created_at: string;
 };
 
+export type Category = {
+  id: number;
+  name: string;
+  created_at: string;
+};
+
+export type Note = {
+  id: number;
+  category_id: number;
+  name: string;
+  technology: string | null;
+  created_at: string;
+};
+
 export type Topic = {
   id: number;
+  note_id: number;
   title: string;
-  category: string;
-  technology: string;
   language: string;
   created_at: string;
 };
 
 export type TopicDetail = Topic & {
+  category: { id: number; name: string } | null;
+  note: { id: number; name: string; technology: string | null } | null;
   blocks: Block[];
 };
 
-export type CreateTopicPayload = {
-  category: string;
-  technology: string;
-  title: string;
-  language: string;
-};
+export type CreateCategoryPayload = { name: string };
+
+export type CreateNotePayload = { name: string; technology?: string };
+
+export type CreateTopicPayload = { title: string; language: string };
 
 export type CheatSheet = {
   title: string;
