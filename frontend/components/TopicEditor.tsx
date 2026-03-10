@@ -39,7 +39,14 @@ export function TopicEditor({ initialTopic }: TopicEditorProps) {
 
   async function addBlock(type: "explanation" | "code") {
     const content =
-      type === "explanation" ? "<p>Write your explanation...</p>" : "# Write code here";
+      type === "explanation"
+        ? JSON.stringify([
+            {
+              type: "paragraph",
+              content: "Write explanation...",
+            },
+          ])
+        : "# Write code here";
     const language = type === "code" ? topic.language || "python" : undefined;
 
     await createBlock(topic.id, type, content, language);
@@ -128,7 +135,7 @@ export function TopicEditor({ initialTopic }: TopicEditorProps) {
             return (
               <ExplanationBlock
                 key={block.id}
-                html={block.content}
+                content={block.content}
                 onSave={async (content) => {
                   const updated = await updateBlock(block.id, content, block.language || undefined);
                   replaceBlock(updated);

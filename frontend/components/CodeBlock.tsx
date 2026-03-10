@@ -20,7 +20,6 @@ type CodeBlockProps = {
 const LANG_OPTIONS: BlockLanguage[] = ["python", "javascript", "sql", "html", "css"];
 
 export function CodeBlock({ code, language, onSave, onDelete, onMove }: CodeBlockProps) {
-  const [isEditing, setIsEditing] = useState(false);
   const [draftCode, setDraftCode] = useState(code);
   const [draftLanguage, setDraftLanguage] = useState(language || "python");
   const [output, setOutput] = useState("");
@@ -28,11 +27,9 @@ export function CodeBlock({ code, language, onSave, onDelete, onMove }: CodeBloc
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (!isEditing) {
-      setDraftCode(code);
-      setDraftLanguage(language || "python");
-    }
-  }, [code, language, isEditing]);
+    setDraftCode(code);
+    setDraftLanguage(language || "python");
+  }, [code, language]);
 
   async function handleRun() {
     if (draftLanguage !== "python") {
@@ -55,7 +52,6 @@ export function CodeBlock({ code, language, onSave, onDelete, onMove }: CodeBloc
     setIsSaving(true);
     try {
       await onSave(draftCode, draftLanguage);
-      setIsEditing(false);
     } finally {
       setIsSaving(false);
     }
@@ -64,13 +60,6 @@ export function CodeBlock({ code, language, onSave, onDelete, onMove }: CodeBloc
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setIsEditing(true)}
-          className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-        >
-          Edit
-        </button>
         <button
           type="button"
           onClick={onDelete}
@@ -92,16 +81,42 @@ export function CodeBlock({ code, language, onSave, onDelete, onMove }: CodeBloc
         >
           Move Down
         </button>
-        <span className="ml-auto rounded bg-slate-100 px-2 py-1 text-xs uppercase tracking-wide text-slate-600">
-          {language || "python"}
-        </span>
+
+        <div className="ml-auto flex items-center gap-2">
+          <select
+            value={draftLanguage}
+            onChange={(event) => setDraftLanguage(event.target.value)}
+            className="rounded border border-slate-300 px-2 py-1 text-xs uppercase tracking-wide text-slate-700"
+          >
+            {LANG_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={isSaving}
+            className="rounded bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+          >
+            {isSaving ? "Saving..." : "Save"}
+          </button>
+        </div>
       </div>
 
       <MonacoEditor
-        height="220px"
-        language={language || "python"}
-        value={code}
-        options={{ readOnly: true, minimap: { enabled: false }, fontSize: 14 }}
+        height="280px"
+        language={draftLanguage || "python"}
+        value={draftCode}
+        onChange={(value) => setDraftCode(value ?? "")}
+        options={{
+          minimap: { enabled: false },
+          fontSize: 14,
+          wordWrap: "on",
+          automaticLayout: true,
+          scrollBeyondLastLine: false,
+        }}
       />
 
       <div className="mt-3 flex gap-2">
@@ -118,52 +133,6 @@ export function CodeBlock({ code, language, onSave, onDelete, onMove }: CodeBloc
       <div className="mt-3">
         <OutputPanel output={output} isRunning={isRunning} />
       </div>
-
-      {isEditing ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-          <div className="w-full max-w-4xl rounded-xl border border-slate-200 bg-white p-4">
-            <h3 className="mb-3 text-lg font-semibold text-slate-900">Edit Code Block</h3>
-            <label className="mb-3 block text-sm font-medium text-slate-700">
-              Language
-              <select
-                value={draftLanguage}
-                onChange={(event) => setDraftLanguage(event.target.value)}
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-              >
-                {LANG_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <MonacoEditor
-              height="300px"
-              language={draftLanguage}
-              value={draftCode}
-              onChange={(value) => setDraftCode(value ?? "")}
-              options={{ minimap: { enabled: false }, fontSize: 14, automaticLayout: true }}
-            />
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={isSaving}
-                className="rounded bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
-              >
-                {isSaving ? "Saving..." : "Save"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsEditing(false)}
-                className="rounded border border-slate-300 px-3 py-1.5 text-sm"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </article>
   );
 }

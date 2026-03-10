@@ -8,8 +8,8 @@ PROTO1 includes:
 - Notes inside categories
 - Topics inside notes
 - Interactive block-based topic editor
-- Explanation blocks (TipTap rich text)
-- Code blocks (Monaco editor)
+- Explanation blocks (BlockNote rich editor)
+- Code blocks (Monaco IDE-style cell)
 - Block reordering (move up/down)
 - Cheat sheet section
 - Interactive Python code execution on topic pages
@@ -72,6 +72,12 @@ Frontend URL: `http://localhost:3000`
 - `/documentation/[category]` Notes page for selected category with Add Note modal
 - `/notes/[note_id]` Topics page for selected note with Add Topic form
 - `/topic/[id]` Interactive topic editor for explanation and code blocks
+
+Editor behavior:
+
+- Code blocks are always editable (no edit modal).
+- Code blocks include language dropdown + Save on the top-right, Run button under the editor, and persistent output panel.
+- Explanation blocks use BlockNote with modern document-style formatting controls and Save on the top-right.
 
 ## Backend APIs
 
